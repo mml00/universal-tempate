@@ -1,0 +1,163 @@
+# PROD
+version: "3.3"
+name: amofit-prod-v1
+
+
+###########
+# ANCHORS #
+###########
+x-anchors:
+  traefik-network: &traefik
+    name: traefik_default
+    external: true
+
+  service-networks: &networks
+    networks:
+      - default
+      - traefik
+
+  default-user: &user
+    user: "1000:1000"
+    group_add:
+      - root
+
+  envs: 
+    - &django_default_env
+      environments/django.default.env
+    - &django_target_env
+      environments/django.target.env
+
+  backend-base: &backend_base
+    <<: [*networks, *user]
+    build:
+      context: ..
+      dockerfile: ./docker/images/backend.Dockerfile
+    restart: always
+    working_dir: "/app/backend/"
+    depends_on:
+      - postgres
+    volumes:
+      - ..:/app
+    env_file:
+      [*django_default_env, *django_target_env]
+
+
+############
+# NETWORKS #
+############
+networks:
+  traefik:
+    <<: [ *traefik ]
+  default:
+    driver: bridge
+
+  
+services:
+  ########
+  # CORE #
+  ########
+  postgres:
+    <<: [*networks, *user]
+    image: 'bitnami/postgresql:15'
+    restart: always
+    volumes:
+      - ./data/postgres:/bitnami/postgresql/
+    env_file:
+      [*django_default_env, *django_target_env]
+
+  nginx:
+    <<: [*networks]
+    image: nginx:alpine
+    restart: always
+    expose: [80]
+    environment:
+      APP_DEFAULT_SUBDOMAIN: app
+      APP_DOMAIN_NAME: amofit
+      APP_DOMAIN_ZONE: info
+    volumes:
+      - ./configs/nginx/:/etc/nginx/templates
+      - ../media:/public/media
+      - ../staticfiles:/public/staticfiles
+      - ../landings:/public/landings
+      - ../frontend:/public/app
+    labels:
+      traefik.http.routers.amofit-prod-v1-static.rule: Host(`amofit.info`) || HostRegexp(`{subdomain:[a-z]+}.amofit.info`)
+      traefik.http.routers.amofit-prod-v1-static.entrypoints: web
+
+  api:
+    <<: [*backend_base, *networks, *user]
+    command:
+      - |
+        gunicorn backend.wsgi:application -b 0.0.0.0:8000 --workers 6
+        # python manage.py migrate django_ltree
+        # python manage.py migrate
+        # python manage.py createcachetable
+        # python manage.py runserver 0.0.0.0:8000
+        # gunicorn backend.asgi:application -k uvicorn.workers.UvicornWorker -b 0.0.0.0:8000
+    expose: [8000]
+    labels:
+      traefik.http.routers.amofit-prod-v1-api.rule: Host(`app.amofit.info`) && PathPrefix(`/api`, `/admin`, `/auth`, `/jet_api`, `/ckeditor`)
+      traefik.http.routers.amofit-prod-v1-api.entrypoints: web
+
+
+  ###########
+  # DAEMONS #
+  ###########
+  transaction_complete_daemon:
+    <<: [*backend_base, *networks, *user]
+    command: python apps/wallet/transaction_complete_daemon.py
+
+  bot_daemon:
+    <<: [*backend_base, *networks, *user]
+    command: python apps/constructor/daemon.py
+
+  tg_mailing_daemon:
+    <<: [*backend_base, *networks, *user]
+    command: python apps/notifications/daemons/daemon_telegram_mailing.py
+
+  recurrent:
+    <<: [*backend_base, *networks, *user]
+    command: python apps/wallet/recurrent.py
+
+
+  ############
+  # BUILDERS #
+  ############
+  builder.frontend:
+    <<: [*user]
+    build:
+      context: ./images
+      dockerfile: ./frontend.Dockerfile
+    working_dir: /app
+    volumes:
+      - ../frontend:/app
+    profiles:
+      - build
+    command:
+      - |
+        yarn build
+        rm -rf dist
+        mv dist_tmp dist
+
+  builder.landings:
+    <<: [*user]
+    build:
+      context: ./images
+      dockerfile: ./frontend.Dockerfile
+    working_dir: /app
+    volumes:
+      - ../landings:/app
+    profiles:
+      - build
+    command:
+      - |
+        yarn build
+
+  builder.staticfiles:
+    <<: [ *backend_base, *user ]
+    restart: "no"
+    profiles:
+      - build
+    command:
+      - |
+        python manage.py collectstatic --no-input

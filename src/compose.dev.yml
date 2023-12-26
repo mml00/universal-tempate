@@ -1,0 +1,97 @@
+name: app-dev-v1
+
+
+###########
+# ANCHORS #
+###########
+x-anchors:
+  traefik-network: &traefik
+    name: traefik_default
+    external: true
+
+  service-networks: &networks
+    networks:
+      - default
+      - traefik
+
+  default-user: &user
+    user: "1000:1000"
+    group_add:
+      - root
+
+  envs: 
+    - &default_env
+      environments/default.env
+    - &target_env
+      environments/target.env
+
+  frontend-base: &frontend_base
+    <<: [*networks, *user]
+    build:
+      context: ./images
+      dockerfile: ./node-env.Dockerfile
+    restart: always
+    env_file:
+      [*default_env, *target_env]
+
+  backend-base: &backend_base
+    <<: [*networks, *user]
+    build:
+      context: ./images
+      dockerfile: ./python-env.Dockerfile
+    restart: always
+    env_file:
+      [*default_env, *target_env]
+
+
+############
+# NETWORKS #
+############
+networks:
+  traefik:
+    <<: [ *traefik ]
+  default:
+    driver: bridge
+
+
+services:
+  #######
+  # DBs #
+  #######
+  postgres:
+    <<: [*networks, *user]
+    restart: always
+    image: 'bitnami/postgresql:15'
+    volumes:
+      - ./data/postgres:/bitnami/postgresql/
+    env_file:
+      [*default_env, *target_env]
+
+
+  ###########
+  # BACKEND #
+  ###########
+  api:
+    <<: [*backend_base, *networks, *user]
+    command:
+      - |
+        python --version
+        python -m http.server 8000
+    expose: [8000]
+    labels:
+      - "traefik.http.routers.${COMPOSE_PROJECT_NAME}-api.rule=Host(`${COMPOSE_PROJECT_NAME}.api.localhost`)"
+      - "traefik.http.routers.${COMPOSE_PROJECT_NAME}-api.entrypoints=web"
+
+
+  ############
+  # FRONTEND #
+  ############
+  app:
+    <<: [*networks, *user, *frontend_base]
+    command: yarn dev
+    volumes:
+      - ../frontend:/app
+    expose: [8000]
+    labels:
+      - "traefik.http.routers.${COMPOSE_PROJECT_NAME}-app.rule=Host(`${COMPOSE_PROJECT_NAME}.app.localhost`)"
+      - "traefik.http.routers.${COMPOSE_PROJECT_NAME}-app.entrypoints=web"

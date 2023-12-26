@@ -1,0 +1,34 @@
+name: traefik
+
+
+networks:
+  default:
+    driver: bridge
+
+x-networks: &networks
+  networks:
+    - default
+
+
+services:
+  traefik:
+    <<: [ *networks ]
+    container_name: traefik
+    restart: always
+    image: "traefik:v2.10"
+    command:
+      - "--api.insecure=true"
+      - "--log.level=DEBUG"
+      - "--providers.docker=true"
+      - "--providers.docker.network=traefik_default"
+      - "--providers.docker.exposedbydefault=true"
+      - "--entrypoints.web.address=:80"
+    ports:
+      - "80:80"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+    labels:
+      traefik.http.routers.api.rule: Host(`traefik.localhost`)
+      traefik.http.routers.api.service: api@internal
+      traefik.http.routers.api.middlewares: dashboard-auth
+      traefik.http.middlewares.dashboard-auth.basicauth.users: "admin:$$apr1$$n310w58e$/f4El8/fNNnypyTLRWb4a0" # admin:adminadmin228

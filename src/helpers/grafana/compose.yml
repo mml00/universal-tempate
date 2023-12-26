@@ -1,0 +1,61 @@
+name: grafana
+
+
+###########
+# ANCHORS #
+###########
+x-anchors:
+  traefik-network: &traefik
+    name: traefik_default
+    external: true
+
+  logging-network: &logging_network
+    name: logging_default
+    external: true
+
+  logging: &logging
+    logging:
+      driver: json-file
+      options:
+        tag: "{{.ImageName}}|{{.Name}}|{{.ImageFullID}}|{{.FullID}}"
+        max-size: 1G
+
+  networks: &networks
+    networks:
+      - default
+      - traefik
+      - logging
+
+
+############
+# NETWORKS #
+############
+networks:
+  logging:
+    <<: [ *logging_network ]
+  traefik:
+    <<: [ *traefik ]
+  default:
+    driver: bridge
+
+
+services:
+  grafana:
+    <<: [ *networks, *logging ]
+    image: grafana/grafana:latest
+    container_name: grafana
+    # ports:
+    #   - "3000:3000"
+    expose: [3000]
+    volumes: 
+      - grafana-data:/var/lib/grafana
+      - ./configs:/etc/grafana/provisioning/
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: testloki
+    labels:
+      traefik.http.routers.grafana.rule: Host(`grafana.localhost`)
+      traefik.http.routers.grafana.entrypoints: web
+
+
+volumes:
+  grafana-data:

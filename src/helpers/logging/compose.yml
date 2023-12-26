@@ -1,0 +1,46 @@
+name: logging
+
+
+###########
+# ANCHORS #
+###########
+x-anchors:
+  logging: &logging
+    logging:
+      driver: json-file
+      options:
+        tag: "{{.ImageName}}|{{.Name}}|{{.ImageFullID}}|{{.FullID}}"
+        max-size: 1G
+
+  networks: &networks
+    networks:
+      - default
+
+
+############
+# NETWORKS #
+############
+networks:
+  default:
+    driver: bridge
+
+
+services:
+  loki:
+    <<: [ *networks, *logging ]
+    image: grafana/loki:2.9.0
+    container_name: loki
+    restart: always
+    command: -config.file=/etc/loki/config.yml
+    volumes:
+      - ./configs/loki.yml:/etc/loki/config.yml
+
+  promtail:
+    <<: [ *networks, *logging ]
+    image: grafana/promtail:2.9.0
+    container_name: promtail
+    restart: always
+    command: -config.file=/etc/promtail/config.yml
+    volumes:
+      - ./configs/promtail.yml:/etc/promtail/config.yml
+      - /var/lib/docker/containers:/host/containers

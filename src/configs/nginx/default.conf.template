@@ -1,0 +1,25 @@
+server {
+  server_name ${APP_DOMAIN_NAME}\.${APP_DOMAIN_ZONE}$, ~^(?<subdomain>.+)\.${APP_DOMAIN_NAME}\.${APP_DOMAIN_ZONE}$;
+	listen 80;
+
+	index index.html;
+
+	set $subdomain_root /public/landings/dist/$subdomain/;
+	if ( $subdomain = "${APP_DEFAULT_SUBDOMAIN}" ) {
+		set $subdomain_root /public/app/dist/;
+	}
+	if ( $subdomain = "" ) {
+		set $subdomain_root /public/landings/dist/fast/;
+	}
+	location @rewrites {
+		rewrite ^(.+)$ /index.html last;
+	}
+	location / {
+		root $subdomain_root;
+		try_files $uri $uri/ @rewrites;
+	}
+	# backend static
+	location ~ ^/(staticfiles|media|\.well-known)/(.*)$ {
+		alias /public/$1/$2;
+	}
+}
